@@ -5,7 +5,7 @@ import { useStore, visibleMessages, currentTaskBot, type Bot, type Group, type M
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { activeLocale, t } from "@/lib/i18n";
-import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
+import { useOwnerOrAdmin, usePairedAdmin } from "@/lib/use-owner-or-admin";
 import { useAdvancedMode } from "@/lib/interface-mode";
 import {
   draftRevision,
@@ -121,6 +121,7 @@ export function Composer({
   const locked = setupLocked || Boolean(bot?.awaitingThreadSnapshot);
   const { state, dispatch } = useStore();
   const ownerOrAdmin = useOwnerOrAdmin();
+  const remoteFullAccess = usePairedAdmin();
   const { threads, currentBotId } = useThreadRefs();
   const { capabilities } = useDesktopCapabilities();
   // Simple leaves where a conversation works to its bot's Works on (Auto by
@@ -558,7 +559,8 @@ export function Composer({
   };
   const setApprovalMode = (mode: ApprovalMode) => {
     if (!modeBot || modeBot.busy || mode === approvalModeFor(modeBot)) return;
-    if ((mode === "full" || mode === "custom") && !trustedThreadAccess) return;
+    if (mode === "full" && !trustedThreadAccess && !remoteFullAccess) return;
+    if (mode === "custom" && !trustedThreadAccess) return;
     if (mode === "full") {
       setApprovalWarning({ mode, botId: modeBot.id, threadId: modeBot.threadId });
       return;
@@ -1029,7 +1031,7 @@ export function Composer({
                   {effectiveChannelMode === "goal" ? "/goal" : t("composer.goal.chip")}
                 </button>
               )}
-              {modeBot && approvalEngine && !remoteClient && (
+              {modeBot && approvalEngine && (!remoteClient || remoteFullAccess) && (
                 <ApprovalModeSelector
                   approvalMode={modeBot.approvalMode}
                   autoApprove={modeBot.autoApprove}
@@ -1038,6 +1040,7 @@ export function Composer({
                   onSelect={setApprovalMode}
                   disabled={Boolean(modeBot.busy)}
                   trustedModesAvailable={trustedThreadAccess}
+                  fullAccessAvailable={remoteFullAccess}
                   onManageCommandAllowlist={ownerOrAdmin === true ? () => setCommandAllowlistTarget({ botId: modeBot.id, botName: modeBot.name, threadId: modeBot.threadId }) : undefined}
                 />
               )}
@@ -1246,7 +1249,7 @@ export function Composer({
         onConfirm={() => {
           const target = approvalWarning;
           setApprovalWarning(null);
-          if (target?.mode !== "full" || !trustedThreadAccess) return;
+          if (target?.mode !== "full" || (!trustedThreadAccess && !remoteFullAccess)) return;
           dispatch({ type: "updateTask", botId: target.botId, threadId: target.threadId,
             patch: { approvalMode: "full", confirmFullAccess: true } });
         }}

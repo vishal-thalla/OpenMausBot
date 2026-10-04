@@ -45,13 +45,13 @@ export function approvalModeOptions(): ApprovalModeOption[] {
   }));
 }
 
-export function approvalModeOptionsFor(driverKind: string, trustedModesAvailable = true) {
+export function approvalModeOptionsFor(driverKind: string, trustedModesAvailable = true, fullAccessAvailable = false) {
   return approvalModeOptions()
     .filter((option) => supportsApprovalMode(driverKind, option.mode)
       // Antigravity has no native reviewer. Offer its explicit full-access
       // grant as Auto instead of a second choice that actually behaves as Ask.
       && (driverKind !== "antigravityAgent" || option.mode !== "auto")
-      && (trustedModesAvailable || option.mode === "ask" || option.mode === "edits" || option.mode === "auto"))
+      && (trustedModesAvailable || (fullAccessAvailable && option.mode === "full") || option.mode === "ask" || option.mode === "edits" || option.mode === "auto"))
     .map((option) => {
       if (driverKind === "antigravityAgent" && option.mode === "full") {
         return {
@@ -93,6 +93,7 @@ export function ApprovalModeSelector({
   wide = false,
   disabled = false,
   trustedModesAvailable = true,
+  fullAccessAvailable = false,
   trustedModesNotice,
   onManageCommandAllowlist,
 }: {
@@ -106,6 +107,7 @@ export function ApprovalModeSelector({
   wide?: boolean;
   disabled?: boolean;
   trustedModesAvailable?: boolean;
+  fullAccessAvailable?: boolean;
   trustedModesNotice?: string;
   onManageCommandAllowlist?: () => void;
 }) {
@@ -121,7 +123,7 @@ export function ApprovalModeSelector({
   const current = approvalModeOptionsFor(driverKind).find((option) => option.mode === mode)
     ?? allOptions.find((option) => option.mode === mode)
     ?? allOptions[0];
-  const visibleOptions = approvalModeOptionsFor(driverKind, trustedModesAvailable);
+  const visibleOptions = approvalModeOptionsFor(driverKind, trustedModesAvailable, fullAccessAvailable);
   const requiresLocalDesktop = approvalModeSelectionRequiresLocalDesktop(
     mode,
     trustedModesAvailable,

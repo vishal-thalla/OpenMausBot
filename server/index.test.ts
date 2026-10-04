@@ -5344,7 +5344,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("keeps Full and Custom bots on Codex when the paired model route changes providers", async () => {
+  it("preserves Full across providers while keeping Custom restricted to Codex", async () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), "omb-trusted-mode-model-"));
     const isolatedData = join(isolatedHome, ".openmausbot");
     const isolatedStatic = join(isolatedHome, "static");
@@ -5413,6 +5413,13 @@ describe("harness HTTP API", () => {
       const targetSelection = { instanceId: claude.instanceId, model: claude.models.default };
 
       for (const seeded of trustedBots) {
+        if (seeded.approvalMode === "full") {
+          const switched = await isolatedApi("PATCH", `/api/bots/${seeded.id}/model`, targetSelection);
+          expect(switched.status).toBe(200);
+          expect(switched.body.bot).toMatchObject({ approvalMode: "full", modelSelection: targetSelection });
+          expect((await isolatedApi("PATCH", `/api/bots/${seeded.id}`, { modelSelection: seeded.modelSelection })).status).toBe(200);
+          continue;
+        }
         const rejected = await isolatedApi("PATCH", `/api/bots/${seeded.id}/model`, targetSelection);
         expect(rejected.status, seeded.approvalMode).toBe(400);
         expect(rejected.body.error).toMatch(/requires choosing Ask first/i);

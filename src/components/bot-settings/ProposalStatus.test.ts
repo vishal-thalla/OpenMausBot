@@ -52,6 +52,7 @@ function makeDerived(): ReturnType<typeof import("./useBotSettingsDerived").useB
     engine: undefined,
     approvalMode: "ask",
     trustedModesAvailable: false,
+    fullAccessAvailable: false,
     canCoordinate: false,
     canUseConnectedApps: true,
     canUseVps: false,

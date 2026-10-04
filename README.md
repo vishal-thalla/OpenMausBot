@@ -1,3 +1,71 @@
+## vishal-thalla fork: remote Full access and provider switching
+
+This public fork of [milind-soni/OpenMausBot](https://github.com/milind-soni/OpenMausBot)
+adds two focused changes to the upstream 0.1.95 source:
+
+- A paired, authenticated **admin** can explicitly enable **Full access** from
+  a remote browser or Mac desktop client. The existing Full access warning
+  must be confirmed. Bot settings can apply it to all existing threads;
+  the composer can grant it to just the selected thread.
+- Switching Claude Code ↔ Codex preserves the saved approval level when
+  the destination supports it: Full stays Full, and Ask stays Ask. A provider
+  that cannot implement the current level still requires the upstream Ask
+  transition. Custom remains restricted to its supported provider and the
+  private desktop confirmation channel.
+
+The HTTP exception requires a live paired session with `admin` scope and
+`confirmFullAccess: true`. An acknowledgement alone grants nothing:
+sessionless loopback callers, chat-only sessions and agent/MCP capabilities
+cannot use it to elevate a bot. Busy scopes and unfinished desktop grants
+remain blocked. New and imported bots retain upstream Ask defaults. Provider
+permissions are still reasserted on each turn. Existing admin activity recording
+still applies where enabled by upstream; this fork does not enable it globally.
+
+### Run this fork on the Dell
+
+`npx openmausbot@latest` and the upstream download links below install the
+official release, **not these changes**. This fork is source-only; no npm package
+or desktop installers have been published. Use Node 24+ and pnpm 10.33.0:
+
+```sh
+git clone https://github.com/vishal-thalla/OpenMausBot.git
+cd OpenMausBot
+corepack enable
+pnpm install --frozen-lockfile
+pnpm build
+OMB_STATIC_DIR="$PWD/dist" pnpm dev:server
+```
+
+Stop the previous server first. The normal data location is `~/.openmausbot`;
+keep your existing `OMB_DATA_DIR` and other server environment settings if
+you use them. Back up that directory before switching installations. Pair the
+Mac to this server with admin scope, open bot settings → Permissions, select
+Full access and confirm. A remote browser uses this server's patched UI. For
+the Mac desktop client, build/install this fork there too (upstream clients may
+still hide Full or send Ask resets): `pnpm package:mac` on macOS. The upstream
+desktop auto-updater is unchanged and can replace a custom build with upstream.
+
+### Verification and upstream maintenance
+
+```sh
+pnpm exec vitest run server/remote-admin-full-access.e2e.test.ts server/approval-mode.test.ts src/state/store.test.ts src/components/ApprovalModeSelector.test.ts src/lib/company-models.test.ts
+pnpm exec vitest run server/index.test.ts -t 'preserves Full across providers'
+pnpm typecheck
+pnpm lint
+pnpm i18n:check
+```
+
+The integration test launches an isolated temporary server with repository-owned
+fake Claude and Codex engines. It checks confirmed admin grants, refusal of
+sessionless/member/unconfirmed grants, thread scope, all-thread scope, defaults,
+and both switch directions. It does not authenticate live provider accounts or
+exercise a physical Mac/Dell pairing. The renderer tests cover request payloads
+and selector availability; native desktop interaction still needs manual checking.
+Keep the fork patch when merging upstream; the shared model-switch rule, HTTP
+guards and renderer persistence/selector paths must stay aligned.
+
+---
+
 <div align="center">
 
 # OpenMausBot

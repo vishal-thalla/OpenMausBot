@@ -10,6 +10,7 @@ import { stateForBot } from "@/lib/mascot";
 import { placeOffered } from "@/lib/place";
 import { useStore, type Bot } from "@/state/store";
 import { approvalModeFor } from "../../../shared/approval-mode";
+import { usePairedAdmin } from "@/lib/use-owner-or-admin";
 import { connectorGrantsState, type ConnectorGrantsState } from "@/lib/connector-grants";
 
 export type BotPatch = Partial<
@@ -73,7 +74,8 @@ export function useBotSettingsDerived(bot: Bot) {
   // only autoApprove. Full and Custom need the packaged desktop's trusted
   // channel (SettingsPanel used the same test before the dialog replaced it).
   const approvalMode = approvalModeFor(bot);
-  const trustedModesAvailable = Boolean(window.ogb?.approvals && capabilities.host.packaged);
+  const trustedModesAvailable = Boolean(window.ogb?.remoteClient?.active !== true && window.ogb?.approvals && capabilities.host.packaged);
+  const fullAccessAvailable = usePairedAdmin();
   const canCoordinate = engine?.capabilities?.agentsMcp === true;
   const canUseConnectedApps = engine?.capabilities?.composioMcp === true;
   const canUseVps = engine?.capabilities?.computerMcp === true && engine.driverKind !== "boxAgent";
@@ -108,6 +110,7 @@ export function useBotSettingsDerived(bot: Bot) {
     engine,
     approvalMode,
     trustedModesAvailable,
+    fullAccessAvailable,
     canCoordinate,
     canUseConnectedApps,
     canUseVps,

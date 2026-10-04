@@ -4,7 +4,24 @@
 // load; null while the answer is on its way.
 import { useEffect, useState } from "react";
 
-import { isOwnerOrAdmin, readSessionState } from "./session";
+import { isOwnerOrAdmin, readSessionState, type SessionState } from "./session";
+
+let sessionPending: Promise<SessionState> | null = null;
+
+/** Only a paired admin session can grant Full through HTTP. Loopback owner
+ * status is deliberately insufficient, including in an unpackaged browser. */
+export function usePairedAdmin(): boolean {
+  const [allowed, setAllowed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    sessionPending ??= readSessionState();
+    void sessionPending.then(session => {
+      if (alive) setAllowed(session.kind === "session" && session.scopes.includes("admin"));
+    }, () => {});
+    return () => { alive = false; };
+  }, []);
+  return allowed;
+}
 
 let pending: Promise<boolean> | null = null;
 

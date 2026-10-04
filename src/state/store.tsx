@@ -2552,8 +2552,8 @@ type TrustedApprovalBridge = {
   ): Promise<BotAnnouncement>;
 };
 
-/** Composer changes use the same private bridge as bot settings, but never
- * change profile defaults. Confirmation is UI state, never an HTTP credential. */
+/** Composer changes never change profile defaults. Local desktop grants use
+ * the private bridge; remote Full requests require server-side admin auth. */
 export async function persistTaskApproval(
   botId: string, threadId: string, patch: TaskUpdatePatch,
   bridge: TrustedApprovalBridge | undefined,
@@ -2562,17 +2562,18 @@ export async function persistTaskApproval(
   const { approvalMode, autoApprove, confirmFullAccess, acknowledgeLocalAuto, ...ordinary } = patch;
   const mode = approvalMode ?? (autoApprove === undefined ? undefined : autoApprove ? "auto" : "ask");
   if (mode === "full" && confirmFullAccess !== true) throw new Error("Confirm Full access for this thread first");
-  if ((mode === "full" || mode === "custom") && !bridge) throw new Error("This approval change requires the packaged desktop app");
+  if (mode === "custom" && !bridge) throw new Error("This approval change requires the packaged desktop app");
   if (mode && bridge) {
     if (Object.keys(ordinary).length) await request(`/api/bots/${botId}/tasks/${threadId}`, { method: "PATCH", body: JSON.stringify(ordinary) });
     return bridge.setMode(botId, mode, { threadId, threadOnly: true, acknowledgeLocalAuto: acknowledgeLocalAuto === true });
   }
-  const result = await request(`/api/bots/${botId}/tasks/${threadId}`, { method: "PATCH", body: JSON.stringify({ ...ordinary, approvalMode, autoApprove, acknowledgeLocalAuto }) });
+  const result = await request(`/api/bots/${botId}/tasks/${threadId}`, { method: "PATCH", body: JSON.stringify({ ...ordinary, approvalMode, autoApprove, acknowledgeLocalAuto,
+    ...(mode === "full" ? { confirmFullAccess: true } : {}) }) });
   return result.bot;
 }
 
-/** Persist one coalesced bot edit without ever putting Full/Custom authority
- * on the bot-accessible HTTP surface. Entering a trusted mode writes ordinary
+/** Persist one coalesced bot edit. Full can use authenticated admin HTTP;
+ * Custom remains private. Entering a trusted desktop mode writes ordinary
  * fields first, then grants authority. Leaving Custom reverses that order so a
  * coalesced provider switch is validated after the bot is back in Ask/Auto.
  * Exported for a small ordering/security contract test. */
@@ -2582,7 +2583,7 @@ export async function persistBotUpdate(
   signal: AbortSignal,
   request: (path: string, init?: RequestInit) => Promise<{ bot: BotAnnouncement }> = api,
   trustedApprovals: TrustedApprovalBridge | undefined =
-    typeof window === "undefined" ? undefined : window.ogb?.approvals,
+    typeof window === "undefined" || window.ogb?.remoteClient?.active === true ? undefined : window.ogb?.approvals,
   currentBot?: BotAnnouncement,
 ): Promise<BotAnnouncement> {
   const {
@@ -2613,6 +2614,12 @@ export async function persistBotUpdate(
 
   if (approvalMode === "full" && confirmFullAccess !== true) {
     throw new Error("Confirm the Full access warning before enabling it");
+  }
+  if (approvalMode === "full" && !leavesCustom && !trustedApprovals) {
+    const result = await request(`/api/bots/${botId}`, {
+      method: "PATCH", body: JSON.stringify({ ...ordinaryPatch, approvalMode, confirmFullAccess: true, applyToAllThreads }), signal,
+    });
+    return result.bot;
   }
   if (!trustedApprovals || approvalMode === undefined) {
     throw new Error("This approval-level change requires the packaged desktop app");
@@ -2759,7 +2766,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () =>
       createBotPatchQueue({
         send: (botId, patch, signal, currentBot) =>
-          persistBotUpdate(botId, patch, signal, api, window.ogb?.approvals, currentBot),
+          persistBotUpdate(botId, patch, signal, api, window.ogb?.remoteClient?.active === true ? undefined : window.ogb?.approvals, currentBot),
         reconcile: async (botId, signal) => {
           const result: { bots: BotAnnouncement[] } = await api(`/api/bots?messages=${MESSAGE_PAGE_SIZE}`, { signal });
           return result.bots.find((candidate) => candidate.id === botId) ?? null;
@@ -2842,12 +2849,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // The private path is required for Custom; use it for every
           // confirmed desktop switch so optimistic Ask cannot hide the
           // original mode while a pending write waits its turn.
-          if (patch.resetApprovalToAsk && window.ogb?.approvals) {
+          if (patch.resetApprovalToAsk && window.ogb?.remoteClient?.active !== true && window.ogb?.approvals) {
             return window.ogb.approvals.setMode(botId, "ask", {
               threadId, modelSelection: patch.modelSelection, updateBotDefault: Boolean(patch.updateBotDefault),
             });
           }
-          return persistTaskApproval(botId, threadId, patch, window.ogb?.approvals);
+          return persistTaskApproval(botId, threadId, patch, window.ogb?.remoteClient?.active === true ? undefined : window.ogb?.approvals);
         });
       // Later edits still get saved after an earlier failure, but a send
       // awaiting this batch must observe every rejected setting in it. A
@@ -3461,16 +3468,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const acknowledgeLocalAuto = action.acknowledgeLocalAuto === true;
           // Full, Custom, and leaving Custom stay on the private desktop
           // channel. Ask, Edits, and Auto can use the thread settings route.
-          const needsDesktop = mode === "full" || mode === "custom" || current === "custom";
+          const localBridge = window.ogb?.remoteClient?.active === true ? undefined : window.ogb?.approvals;
+          const needsDesktop = (mode === "full" && Boolean(localBridge)) || mode === "custom" || current === "custom";
           const refreshed = needsDesktop
-            ? window.ogb?.approvals
-              ? window.ogb.approvals.setMode(action.botId, mode, {
+            ? localBridge
+              ? localBridge.setMode(action.botId, mode, {
                 threadId: action.threadId, threadOnly: true, refreshPermissions: true, acknowledgeLocalAuto,
               })
               : Promise.reject(new Error("This approval change requires the packaged desktop app"))
             : api<{ bot: BotAnnouncement }>(`/api/bots/${action.botId}/tasks/${action.threadId}`, {
               method: "PATCH",
-              body: JSON.stringify({ refreshPermissions: true, ...(acknowledgeLocalAuto ? { acknowledgeLocalAuto: true } : {}) }),
+              body: JSON.stringify({ refreshPermissions: true, ...(mode === "full" ? { confirmFullAccess: true } : {}), ...(acknowledgeLocalAuto ? { acknowledgeLocalAuto: true } : {}) }),
             }).then((result) => result.bot);
           void refreshed.then((updated) => {
             if (updated) rawDispatch({ type: "botPatched", bot: withTaskWrites(updated) });

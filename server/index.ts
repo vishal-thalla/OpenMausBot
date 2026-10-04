@@ -20634,7 +20634,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const mode = approvalModeFor(owner);
         return (mode === "full" || mode === "custom") &&
           (!supportsApprovalMode(checked.selection, mode) ||
-            registry.cliTarget(checked.selection.instanceId)?.driverKind !== registry.cliTarget(owner.modelSelection.instanceId)?.driverKind);
+            (mode === "custom" && registry.cliTarget(checked.selection.instanceId)?.driverKind !== registry.cliTarget(owner.modelSelection.instanceId)?.driverKind));
       })) {
         return json(res, 400, {
           error: "Changing providers with elevated permissions requires choosing Ask first",
@@ -21013,7 +21013,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const mode = approvalModeFor(selectedTask);
         if ((mode === "full" || mode === "custom") &&
           (!supportsApprovalMode(normalizedSelection, mode) ||
-            registry.cliTarget(normalizedSelection.instanceId)?.driverKind !== registry.cliTarget(selectedTask.modelSelection.instanceId)?.driverKind)) {
+            (mode === "custom" && registry.cliTarget(normalizedSelection.instanceId)?.driverKind !== registry.cliTarget(selectedTask.modelSelection.instanceId)?.driverKind))) {
           return json(res, 400, { error: "Choose Ask for the selected thread before changing providers with elevated permissions" });
         }
       }
@@ -21021,7 +21021,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         (requestedApprovalMode === "full" || requestedApprovalMode === "custom") &&
         (body.approvalMode !== undefined || normalizedSelection !== undefined) &&
         (!targetSelection || !supportsApprovalMode(targetSelection, requestedApprovalMode) ||
-          (existingBot && normalizedSelection && registry.cliTarget(normalizedSelection.instanceId)?.driverKind !== registry.cliTarget(existingBot.modelSelection.instanceId)?.driverKind))
+          (requestedApprovalMode === "custom" && existingBot && normalizedSelection && registry.cliTarget(normalizedSelection.instanceId)?.driverKind !== registry.cliTarget(existingBot.modelSelection.instanceId)?.driverKind))
       ) {
         return json(res, 400, {
           error: "This provider does not support the selected approval level, or changing providers requires choosing Ask first",
@@ -21031,7 +21031,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ((requestedApprovalMode === "full" || requestedApprovalMode === "custom") &&
           currentApprovalMode !== requestedApprovalMode) ||
         (currentApprovalMode === "custom" && requestedApprovalMode !== "custom");
-      if (requiresPrivateApprovalTransition) {
+      const remoteFullGrant = auth.kind === "session" && auth.scopes.includes("admin") &&
+        requestedApprovalMode === "full" && currentApprovalMode !== "custom" && body.confirmFullAccess === true;
+      // A confirmed paired admin is an explicit human grant. Merely having
+      // loopback admin scopes or sending this flag is never sufficient.
+      if (requiresPrivateApprovalTransition && !remoteFullGrant) {
         return json(res, 403, {
           error: "This approval-level change can only be made from the packaged desktop app",
         });
@@ -21207,6 +21211,23 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         sectionKey(existingBot?.section) !== sectionKey(section);
       let bot: BotRecord | null;
       const freshBrowserBot = store.bot(m[1]);
+      if (remoteFullGrant) {
+        const grantingBotId = m[1];
+        if (!sessions.isLive(auth.kind === "session" ? auth.session.id : "")) return json(res, 401, { error: "unauthorized: this session has expired or was revoked" });
+        if (freshBrowserBot && approvalModeFor(freshBrowserBot) === "custom") {
+          return json(res, 403, { error: "Leaving Custom approval requires confirmation in the packaged desktop app" });
+        }
+        if (freshBrowserBot?.approvalGrant || freshBrowserBot?.busy || activeGroupTurnForBot(m[1]) ||
+            (body.applyToAllThreads === true && store.tasks(grantingBotId).some(task => threadBusy(grantingBotId, task.threadId)))) {
+          return json(res, 409, { error: "Stop work in the selected scope before changing its permissions" });
+        }
+        if (body.applyToAllThreads === true && store.tasks(m[1]).some(task => !supportsApprovalMode(task.modelSelection ?? freshBrowserBot!.modelSelection, "full"))) {
+          return json(res, 400, { error: "An existing thread's provider does not support Full access" });
+        }
+        if (body.applyToAllThreads === true && store.tasks(m[1]).some(task => approvalModeFor(task) === "custom")) {
+          return json(res, 403, { error: "Leaving Custom approval requires confirmation in the packaged desktop app" });
+        }
+      }
       // Connector validation and runtime revocation can yield after the first
       // memory check. Keep the same idle-only transition at the final commit.
       if (freshBrowserBot && body.memoryEnabled !== undefined &&
@@ -21272,6 +21293,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         bot = store.patchBot(m[1], patch);
       }
       if (!bot) return json(res, 404, { error: "no such bot" });
+      if (remoteFullGrant && body.applyToAllThreads === true) store.setAllThreadApprovalMode(bot.id, "full");
       if (body.memoryUpkeep === false || body.memoryEnabled === false) memoryUpkeep.dropBot(bot.id);
       // A defined Works on is the newest explicit choice: this bot's
       // auto-recorded pins that now point elsewhere give way immediately, so
@@ -22448,7 +22470,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!body || typeof body !== "object" || Array.isArray(body)) return json(res, 400, { error: "body must be a JSON object" });
       const current = store.projectBotForTask(m[1], m[2]);
       if (!current) return json(res, 404, { error: "no such task" });
-      const allowed = new Set(["title", "projectId", "modelSelection", "updateBotDefault", "resetApprovalToAsk", "approvalMode", "autoApprove", "requireAvailableModel", "pinnedMessageId", "acknowledgeLocalAuto", "archivedAt", "pinned", "snoozedUntil", "surface", "refreshPermissions"]);
+      const allowed = new Set(["title", "projectId", "modelSelection", "updateBotDefault", "resetApprovalToAsk", "approvalMode", "autoApprove", "confirmFullAccess", "requireAvailableModel", "pinnedMessageId", "acknowledgeLocalAuto", "archivedAt", "pinned", "snoozedUntil", "surface", "refreshPermissions"]);
       if (Object.keys(body).some((key) => !allowed.has(key))) return json(res, 400, { error: "unsupported thread setting" });
       const notYours = cloudThreadRefusal(auth, m[2]);
       if (notYours) return json(res, 403, { error: notYours });
@@ -22472,17 +22494,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 400, { error: "refreshPermissions must be true" });
       }
       if (body.refreshPermissions === true) {
-        const extra = Object.keys(body).filter((key) => key !== "refreshPermissions" && key !== "acknowledgeLocalAuto");
+        const extra = Object.keys(body).filter((key) => key !== "refreshPermissions" && key !== "acknowledgeLocalAuto" && key !== "confirmFullAccess");
         if (extra.length) return json(res, 400, { error: "refreshPermissions cannot be combined with other thread settings" });
         const profile = store.bot(m[1]);
         if (!profile) return json(res, 404, { error: "no such bot" });
         if (profile.approvalGrant) return json(res, 409, { error: "the bot's approval mode is still being confirmed" });
         if (threadBusy(profile.id, m[2])) return json(res, 409, { error: "stop this thread before changing its approval mode" });
         const nextMode = approvalModeFor({ ...profile, approvalGrant: undefined });
-        // Full and Custom never travel over the bot-reachable HTTP surface.
-        // The desktop's private channel copies those levels, and it is also
-        // the only way to leave Custom.
-        if (nextMode === "full" || nextMode === "custom") {
+        // Full may be copied by a confirmed paired admin; Custom and leaving
+        // Custom still require the desktop's private channel.
+        if (nextMode === "custom" || (nextMode === "full" && !(auth.kind === "session" && auth.scopes.includes("admin") && body.confirmFullAccess === true))) {
           return json(res, 403, { error: "Refresh Full or Custom access from the packaged desktop app" });
         }
         if (approvalModeFor(current) === "custom") {
@@ -22556,9 +22577,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.approvalMode !== undefined || body.autoApprove !== undefined) {
         if (body.autoApprove !== undefined && typeof body.autoApprove !== "boolean") return json(res, 400, { error: "autoApprove must be a boolean" });
         const mode = body.approvalMode ?? (body.autoApprove ? "auto" : "ask");
-        // Elevated modes still require the trusted desktop transition. A
-        // thread settings PATCH cannot manufacture that grant.
-        if (mode !== "ask" && mode !== "auto" && mode !== "edits") return json(res, 403, { error: "Full and Custom access require trusted desktop confirmation" });
+        // Full requires a confirmed paired admin session. Loopback callers
+        // and agent capabilities cannot manufacture that authority.
+        const remoteFullGrant = mode === "full" && auth.kind === "session" && auth.scopes.includes("admin") && body.confirmFullAccess === true;
+        if (mode !== "ask" && mode !== "auto" && mode !== "edits" && !remoteFullGrant) return json(res, 403, { error: "Full access requires confirmed admin consent; Custom requires trusted desktop confirmation" });
         if (approvalModeFor(current) === "custom") return json(res, 403, { error: "Leaving Custom approval requires confirmation in the packaged desktop app" });
         if (!supportsApprovalMode(patch.modelSelection ?? current.modelSelection, mode)) {
           return json(res, 400, { error: "This provider does not support the selected approval level" });

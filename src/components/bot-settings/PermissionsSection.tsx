@@ -37,7 +37,7 @@ export function PermissionsSection({
   bot: Bot;
   derived: ReturnType<typeof useBotSettingsDerived>;
 }) {
-  const { patch, engine, canCoordinate, approvalMode, trustedModesAvailable, sectionName, currentChief } = derived;
+  const { patch, engine, canCoordinate, approvalMode, trustedModesAvailable, fullAccessAvailable, sectionName, currentChief } = derived;
   const { state, dispatch } = useStore();
   const ownerOrAdmin = useOwnerOrAdmin();
   const { draft } = useBotEditor();
@@ -148,10 +148,11 @@ export function PermissionsSection({
             wide
             disabled={Boolean(bot.busy)}
             trustedModesAvailable={trustedModesAvailable}
+            fullAccessAvailable={fullAccessAvailable}
             onManageCommandAllowlist={!draft && ownerOrAdmin === true ? () => setCommandAllowlistTarget({ botId: bot.id, botName: bot.name }) : undefined}
           />
         </div>
-        {!draft && approvalMode === "full" && trustedModesAvailable && <button
+        {!draft && approvalMode === "full" && (trustedModesAvailable || fullAccessAvailable) && <button
           type="button" disabled={Boolean(bot.busy)}
           className="mt-3 text-[13px] text-accent hover:underline disabled:opacity-40"
           onClick={() => { setAllThreads(true); setFullAccessTarget(bot.id); }}

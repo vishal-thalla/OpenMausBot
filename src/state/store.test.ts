@@ -67,11 +67,19 @@ describe("composer thread approval persistence", () => {
     expect(bridge.setMode).toHaveBeenCalledExactlyOnceWith("bot", mode, { threadId: "thread", threadOnly: true, acknowledgeLocalAuto: false });
     expect(request).not.toHaveBeenCalled();
   });
-  it("never falls back to HTTP for Full or Custom, or grants Full without confirmation", async () => {
+  it("never falls back to HTTP for Custom, or grants Full without confirmation", async () => {
     const request = vi.fn(), bridge = { setMode: vi.fn() };
     await expect(persistTaskApproval("bot", "thread", { approvalMode: "full" }, bridge, request)).rejects.toThrow("Confirm Full");
-    for (const mode of ["full", "custom"] as const) await expect(persistTaskApproval("bot", "thread", { approvalMode: mode, confirmFullAccess: true }, undefined, request)).rejects.toThrow("packaged desktop");
+    await expect(persistTaskApproval("bot", "thread", { approvalMode: "custom", confirmFullAccess: true }, undefined, request)).rejects.toThrow("packaged desktop");
     expect(request).not.toHaveBeenCalled(); expect(bridge.setMode).not.toHaveBeenCalled();
+  });
+  it("sends confirmed Full through HTTP for server-side admin authorization", async () => {
+    const request = vi.fn().mockResolvedValue({ bot: { id: "bot" } });
+    await persistTaskApproval("bot", "thread", { approvalMode: "full", confirmFullAccess: true }, undefined, request);
+    expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({ approvalMode: "full", confirmFullAccess: true });
+    await persistBotUpdate("bot", { approvalMode: "full", confirmFullAccess: true, applyToAllThreads: true },
+      new AbortController().signal, request, undefined);
+    expect(JSON.parse(request.mock.calls[1][1].body)).toEqual({ approvalMode: "full", confirmFullAccess: true, applyToAllThreads: true });
   });
   it("does not send local confirmation metadata over HTTP and propagates failed grants", async () => {
     const request = vi.fn().mockResolvedValue({ bot: { id: "bot" } });

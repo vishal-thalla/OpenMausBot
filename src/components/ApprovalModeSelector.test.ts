@@ -50,6 +50,7 @@ describe("approval mode selector", () => {
   });
 
   it("offers provider-supported Full access but keeps config.toml Codex-only", () => {
+    expect(approvalModeOptionsFor("codex", false, true).map((option) => option.mode)).toEqual(["ask", "auto", "full"]);
     expect(approvalModeOptionsFor("codex").map((option) => option.mode)).toEqual([
       "ask",
       "auto",
