@@ -4,7 +4,7 @@ This public fork of [milind-soni/OpenMausBot](https://github.com/milind-soni/Ope
 adds two focused changes to the upstream 0.1.95 source:
 
 - A paired, authenticated **admin** can explicitly enable **Full access** from
-  a remote browser or Mac desktop client. The existing Full access warning
+  a remote browser or desktop client. The existing Full access warning
   must be confirmed. Bot settings can apply it to all existing threads;
   the composer can grant it to just the selected thread.
 - Switching Claude Code ↔ Codex preserves the saved approval level when
@@ -21,7 +21,7 @@ remain blocked. New and imported bots retain upstream Ask defaults. Provider
 permissions are still reasserted on each turn. Existing admin activity recording
 still applies where enabled by upstream; this fork does not enable it globally.
 
-### Run this fork on the Dell
+### Build and run this fork
 
 `npx openmausbot@latest` and the upstream download links below install the
 official release, **not these changes**. This fork is source-only; no npm package
@@ -38,11 +38,12 @@ OMB_STATIC_DIR="$PWD/dist" pnpm dev:server
 
 Stop the previous server first. The normal data location is `~/.openmausbot`;
 keep your existing `OMB_DATA_DIR` and other server environment settings if
-you use them. Back up that directory before switching installations. Pair the
-Mac to this server with admin scope, open bot settings → Permissions, select
-Full access and confirm. A remote browser uses this server's patched UI. For
-the Mac desktop client, build/install this fork there too (upstream clients may
-still hide Full or send Ask resets): `pnpm package:mac` on macOS. The upstream
+you use them. Back up that directory before switching installations. Pair a
+remote client with admin scope, open bot settings → Permissions, select
+Full access and confirm. A remote browser uses this server's patched UI.
+Desktop clients must also use a build of this fork; upstream clients may
+still hide Full or send Ask resets. Platform-specific packaging commands are
+listed in `package.json`. The upstream
 desktop auto-updater is unchanged and can replace a custom build with upstream.
 
 ### Verification and upstream maintenance
@@ -59,7 +60,7 @@ The integration test launches an isolated temporary server with repository-owned
 fake Claude and Codex engines. It checks confirmed admin grants, refusal of
 sessionless/member/unconfirmed grants, thread scope, all-thread scope, defaults,
 and both switch directions. It does not authenticate live provider accounts or
-exercise a physical Mac/Dell pairing. The renderer tests cover request payloads
+exercise pairing between physical devices. The renderer tests cover request payloads
 and selector availability; native desktop interaction still needs manual checking.
 Keep the fork patch when merging upstream; the shared model-switch rule, HTTP
 guards and renderer persistence/selector paths must stay aligned.
